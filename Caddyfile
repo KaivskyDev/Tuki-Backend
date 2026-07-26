@@ -1,0 +1,99 @@
+{
+	email {$ACME_EMAIL}
+	servers {
+		protocols h1 h2 h3
+	}
+}
+
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(self), microphone=(self), display-capture=(self)"
+		-Server
+	}
+}
+
+{$CHAT_HOSTNAME} {
+	import security_headers
+	encode zstd gzip
+	reverse_proxy web:5000
+}
+
+{$CORE_HOSTNAME} {
+	import security_headers
+
+	@tuki_core path /v1/* /health/* /openapi.json
+	handle @tuki_core {
+		reverse_proxy tuki-core:14800
+	}
+
+	handle {
+		reverse_proxy api:14702
+	}
+}
+
+{$GATEWAY_HOSTNAME} {
+	import security_headers
+	reverse_proxy events:14703
+}
+
+{$CDN_HOSTNAME} {
+	import security_headers
+	encode zstd gzip
+	reverse_proxy autumn:14704
+}
+
+{$MEDIA_HOSTNAME} {
+	import security_headers
+
+	handle_path /gifbox* {
+		reverse_proxy gifbox:14706
+	}
+
+	handle {
+		reverse_proxy january:14705
+	}
+}
+
+{$VOICE_HOSTNAME} {
+	import security_headers
+
+	handle_path /livekit* {
+		reverse_proxy livekit:7880
+	}
+
+	handle_path /ingress* {
+		reverse_proxy voice-ingress:8500
+	}
+}
+
+{$INVITE_HOSTNAME} {
+	redir https://{$CHAT_HOSTNAME}/invite{uri} permanent
+}
+
+{$DEVELOPERS_HOSTNAME} {
+	import security_headers
+
+	handle /openapi.json {
+		reverse_proxy tuki-core:14800
+	}
+
+	handle {
+		redir https://{$CORE_HOSTNAME}/openapi.json temporary
+	}
+}
+
+{$SEARCH_HOSTNAME} {
+	import security_headers
+
+	@search path /v1/search /v1/search/*
+	handle @search {
+		reverse_proxy tuki-core:14800
+	}
+
+	handle {
+		respond "Not Found" 404
+	}
+}

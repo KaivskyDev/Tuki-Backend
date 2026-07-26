@@ -1,0 +1,8 @@
+.env
+.env.*
+!.env.example
+secrets.env
+Revolt.toml
+livekit.yml
+data/
+*.old

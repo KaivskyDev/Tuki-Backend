@@ -1,0 +1,31 @@
+# Tuki runtime configuration.
+# Product-specific features must have a real implementation before being added.
+
+[hosts]
+app = "https://chat.muzes.xyz"
+api = "https://core.muzes.xyz"
+events = "wss://gateway.muzes.xyz"
+autumn = "https://cdn.muzes.xyz"
+january = "https://media.muzes.xyz"
+gifbox = "https://media.muzes.xyz/gifbox"
+
+[hosts.livekit]
+worldwide = "wss://voice.muzes.xyz/livekit"
+
+[api.security]
+tenor_key = ""
+
+[api.livekit.nodes.worldwide]
+url = "http://livekit:7880"
+lat = 52.2297
+lon = 21.0122
+key = ""
+secret = ""
+
+[features.limits.new_user]
+video_resolution = [1920, 1080]
+video_aspect_ratio = [0.3, 10]
+
+[features.limits.default]
+video_resolution = [1920, 1080]
+video_aspect_ratio = [0.3, 10]

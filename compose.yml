@@ -1,0 +1,264 @@
+name: tuki
+
+x-tuki-service: &tuki-service
+  restart: unless-stopped
+  env_file:
+    - secrets.env
+  networks:
+    - app
+    - data
+
+services:
+  database:
+    image: mongo:8
+    restart: unless-stopped
+    volumes:
+      - ./data/db:/data/db
+    networks: [data]
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok'"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  redis:
+    image: valkey/valkey:8-alpine
+    restart: unless-stopped
+    networks: [data]
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  rabbit:
+    image: rabbitmq:4-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: rabbituser
+      RABBITMQ_DEFAULT_PASS: rabbitpass
+    volumes:
+      - ./data/rabbit:/var/lib/rabbitmq
+    networks: [data]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+
+  minio:
+    image: minio/minio:latest
+    command: server /data
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: minioautumn
+      MINIO_ROOT_PASSWORD: minioautumn
+      MINIO_DOMAIN: minio
+    volumes:
+      - ./data/minio:/data
+    networks:
+      data:
+        aliases:
+          - revolt-uploads.minio
+          - attachments.minio
+          - avatars.minio
+          - backgrounds.minio
+          - icons.minio
+          - banners.minio
+          - emojis.minio
+  createbuckets:
+    image: minio/mc:latest
+    restart: "no"
+    depends_on:
+      minio:
+        condition: service_started
+    env_file: secrets.env
+    networks: [data]
+    entrypoint: >
+      /bin/sh -ec '
+      mc alias set tuki http://minio:9000 minioautumn minioautumn;
+      mc mb --ignore-existing tuki/revolt-uploads;
+      '
+
+  api:
+    <<: *tuki-service
+    image: ghcr.io/stoatchat/api:v0.13.8
+    depends_on:
+      database: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      rabbit: { condition: service_healthy }
+    volumes:
+      - ./Revolt.toml:/Revolt.toml:ro
+
+  tuki-core:
+    build:
+      context: ./services/tuki-core
+      dockerfile: Dockerfile
+    image: tuki-core:1.0.0
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      PORT: 14800
+      TUKI_MONGO_URL: mongodb://database:27017
+      TUKI_DATABASE_NAME: tuki
+      TUKI_IDENTITY_URL: http://api:14702
+      TUKI_ALLOWED_ORIGINS: https://chat.muzes.xyz
+      TUKI_ADMIN_USER_IDS: ${TUKI_ADMIN_USER_IDS:-}
+      TUKI_TRUST_PROXY: "true"
+    depends_on:
+      database: { condition: service_healthy }
+      api: { condition: service_started }
+    networks: [app, data]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:14800/health/ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  events:
+    <<: *tuki-service
+    image: ghcr.io/stoatchat/events:v0.13.8
+    depends_on:
+      database: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    volumes:
+      - ./Revolt.toml:/Revolt.toml:ro
+
+  autumn:
+    <<: *tuki-service
+    image: ghcr.io/stoatchat/file-server:v0.13.8
+    depends_on:
+      database: { condition: service_healthy }
+      createbuckets: { condition: service_completed_successfully }
+    volumes:
+      - ./Revolt.toml:/Revolt.toml:ro
+
+  january:
+    <<: *tuki-service
+    image: ghcr.io/stoatchat/proxy:v0.13.8
+    volumes:
+      - ./Revolt.toml:/Revolt.toml:ro
+
+  gifbox:
+    <<: *tuki-service
+    image: ghcr.io/stoatchat/gifbox:v0.13.8
+    volumes:
+      - ./Revolt.toml:/Revolt.toml:ro
+
+  crond:
+    <<: *tuki-service
+    image: ghcr.io/stoatchat/crond:v0.13.8
+    depends_on:
+      database: { condition: service_healthy }
+      minio: { condition: service_started }
+    volumes:
+      - ./Revolt.toml:/Revolt.toml:ro
+
+  pushd:
+    <<: *tuki-service
+    image: ghcr.io/stoatchat/pushd:v0.13.8
+    depends_on:
+      database: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      rabbit: { condition: service_healthy }
+    volumes:
+      - ./Revolt.toml:/Revolt.toml:ro
+
+  voice-ingress:
+    <<: *tuki-service
+    image: ghcr.io/stoatchat/voice-ingress:v0.13.8
+    depends_on:
+      database: { condition: service_healthy }
+      rabbit: { condition: service_healthy }
+    volumes:
+      - ./Revolt.toml:/Revolt.toml:ro
+
+  livekit:
+    image: ghcr.io/stoatchat/livekit-server:v1.9.13
+    restart: unless-stopped
+    depends_on:
+      redis: { condition: service_healthy }
+    command: --config /etc/livekit.yml
+    ports:
+      - "7881:7881/tcp"
+      - "50000-50100:50000-50100/udp"
+    volumes:
+      - ./livekit.yml:/etc/livekit.yml:ro
+    networks: [app, data]
+
+  web:
+    build:
+      context: ../tuki frontend
+      dockerfile: Dockerfile
+    image: tuki-web:1.0.0
+    restart: unless-stopped
+    networks: [app]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      web: { condition: service_healthy }
+      api: { condition: service_started }
+      tuki-core: { condition: service_healthy }
+      events: { condition: service_started }
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./data/caddy-data:/data
+      - ./data/caddy-config:/config
+    networks: [edge, app]
+
+  prometheus:
+    image: prom/prometheus:v3.11.3
+    profiles: [observability]
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=30d
+      - --web.enable-lifecycle
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks: [app]
+
+  grafana:
+    image: grafana/grafana:13.1.0
+    profiles: [observability]
+    restart: unless-stopped
+    env_file: secrets.env
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    ports:
+      - "127.0.0.1:3001:3000"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks: [app]
+
+networks:
+  edge:
+  app:
+    internal: true
+  data:
+    internal: true
+
+volumes:
+  prometheus-data:
+  grafana-data:
