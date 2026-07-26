@@ -5,7 +5,7 @@ Feature flags are not treated as implementations.
 
 | Public service | URL | Internal service |
 | --- | --- | --- |
-| Web application | `https://chat.muzes.xyz` | `web:5000` |
+| Web application | `https://chat.muzes.xyz` | separately deployed frontend |
 | Core API (compatible routes) | `https://core.muzes.xyz` | `api:14702` |
 | Tuki Core API v1 | `https://core.muzes.xyz/v1` | `tuki-core:14800` |
 | Tuki health and OpenAPI | `https://core.muzes.xyz/health/*`, `/openapi.json` | `tuki-core:14800` |

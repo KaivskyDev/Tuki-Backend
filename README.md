@@ -38,7 +38,6 @@ Then:
 
 ```bash
 docker compose config
-docker compose build web
 docker compose build tuki-core
 docker compose pull
 docker compose up
@@ -68,7 +67,7 @@ The deployed core currently targets `v0.13.8`. Run:
 
 ```bash
 docker compose pull
-docker compose build --pull web
+docker compose build --pull tuki-core
 docker compose up -d
 docker compose ps
 ```

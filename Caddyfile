@@ -15,12 +15,6 @@
 	}
 }
 
-{$CHAT_HOSTNAME} {
-	import security_headers
-	encode zstd gzip
-	reverse_proxy web:5000
-}
-
 {$CORE_HOSTNAME} {
 	import security_headers
 

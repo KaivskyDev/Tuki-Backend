@@ -22,7 +22,7 @@ through the firewall.
 
 | Hostname | Caddy destination | Function |
 | --- | --- | --- |
-| `chat.muzes.xyz` | `web:5000` | Tuki web client |
+| `chat.muzes.xyz` | separate frontend container/host | Tuki web client; not served by this backend stack |
 | `core.muzes.xyz/v1/*` | `tuki-core:14800` | Tuki product API |
 | `core.muzes.xyz/health/*` | `tuki-core:14800` | health checks |
 | `core.muzes.xyz/openapi.json` | `tuki-core:14800` | OpenAPI contract |
@@ -45,7 +45,6 @@ silently routed to the chat backend.
 
 | Container | Port |
 | --- | --- |
-| `web` | `5000/tcp` |
 | `api` | `14702/tcp` |
 | `events` | `14703/tcp` |
 | `autumn` | `14704/tcp` |
