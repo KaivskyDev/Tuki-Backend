@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 const id = { type: "string", minLength: 1, maxLength: 64 };
 
-export async function registerSocialRoutes(app, { db, authenticate, adminOnly, hasServerAccess }) {
+export async function registerSocialRoutes(app, { db, authenticate, adminOnly, hasServerAccess, isServerOwner }) {
   app.get("/v1/discover/communities", async (request) => {
     const limit = Math.min(Number(request.query.limit ?? 24), 50);
     const filter = { published: true };
@@ -56,6 +56,56 @@ export async function registerSocialRoutes(app, { db, authenticate, adminOnly, h
       { upsert: true },
     );
     return community;
+  });
+
+  app.get("/v1/discover/communities/:serverId/settings", {
+    preHandler: authenticate,
+  }, async (request, reply) => {
+    if (!(await isServerOwner(request, request.params.serverId))) {
+      return reply.code(403).send({ error: "server_owner_required" });
+    }
+    return (await db.collection("communities").findOne(
+      { server_id: request.params.serverId },
+      { projection: { _id: 0, submitted_by: 0 } },
+    )) ?? { server_id: request.params.serverId, published: false };
+  });
+
+  app.put("/v1/discover/communities/:serverId/settings", {
+    preHandler: authenticate,
+    schema: {
+      body: {
+        type: "object",
+        additionalProperties: false,
+        required: ["name", "description", "category", "language", "published"],
+        properties: {
+          name: { type: "string", minLength: 2, maxLength: 80 },
+          description: { type: "string", minLength: 10, maxLength: 400 },
+          category: { enum: ["gaming", "music", "technology", "education", "art", "community", "other"] },
+          language: { type: "string", minLength: 2, maxLength: 12 },
+          icon_url: { type: ["string", "null"], maxLength: 500 },
+          invite_code: { type: ["string", "null"], minLength: 3, maxLength: 64 },
+          member_count: { type: "integer", minimum: 0 },
+          published: { type: "boolean" },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    if (!(await isServerOwner(request, request.params.serverId))) {
+      return reply.code(403).send({ error: "server_owner_required" });
+    }
+    const community = {
+      server_id: request.params.serverId,
+      ...request.body,
+      verified: false,
+      submitted_by: request.tukiUser.id,
+      updated_at: new Date(),
+    };
+    await db.collection("communities").updateOne(
+      { server_id: community.server_id },
+      { $set: community, $setOnInsert: { created_at: new Date() } },
+      { upsert: true },
+    );
+    return withoutMongoId(community);
   });
 
   app.get("/v1/forums/threads", { preHandler: authenticate }, async (request) => {

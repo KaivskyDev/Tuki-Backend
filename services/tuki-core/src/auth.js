@@ -73,3 +73,23 @@ export async function hasServerAccess(config, request, serverId) {
     return false;
   }
 }
+
+export async function isServerOwner(config, request, serverId) {
+  const sessionToken = request.headers["x-session-token"];
+  if (!sessionToken || !serverId) return false;
+
+  try {
+    const response = await fetch(
+      `${config.identityUrl}/servers/${encodeURIComponent(serverId)}`,
+      {
+        headers: { "X-Session-Token": sessionToken },
+        signal: AbortSignal.timeout(5000),
+      },
+    );
+    if (!response.ok) return false;
+    const server = await response.json();
+    return server.owner === request.tukiUser.id;
+  } catch {
+    return false;
+  }
+}

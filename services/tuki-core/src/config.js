@@ -28,6 +28,7 @@ export const config = Object.freeze({
       clientSecret: process.env.TUKI_OAUTH_DISCORD_CLIENT_SECRET ?? "",
     },
   },
+  giphyApiKey: process.env.TUKI_GIPHY_API_KEY ?? "",
   allowedOrigins: list(
     process.env.TUKI_ALLOWED_ORIGINS ?? "https://chat.muzes.xyz",
   ),

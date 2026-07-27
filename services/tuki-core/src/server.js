@@ -5,13 +5,19 @@ import rateLimit from "@fastify/rate-limit";
 import swagger from "@fastify/swagger";
 import Fastify from "fastify";
 
-import { createAuth, hasServerAccess, requireAdmin } from "./auth.js";
+import {
+  createAuth,
+  hasServerAccess,
+  isServerOwner,
+  requireAdmin,
+} from "./auth.js";
 import { config } from "./config.js";
 import { connectDatabase } from "./database.js";
 import { recordRequest, renderMetrics } from "./metrics.js";
 import { sanitisePoll } from "./polls.js";
 import { registerAccountRoutes } from "./routes/account.js";
 import { registerDeveloperRoutes } from "./routes/developers.js";
+import { registerGifRoutes } from "./routes/gifs.js";
 import { registerProductRoutes } from "./routes/product.js";
 import { registerOAuthRoutes } from "./routes/oauth.js";
 import { registerSocialRoutes } from "./routes/social.js";
@@ -82,6 +88,7 @@ const adminOnly = requireAdmin(config);
 app.decorateRequest("tukiUser", null);
 registerTelemetryRoutes(app);
 registerOAuthRoutes(app, { config, db, identityDb });
+registerGifRoutes(app, { config, authenticate });
 app.addHook("onResponse", async (_request, reply) => recordRequest(reply));
 app.addHook("onClose", async () => database.client.close());
 
@@ -112,6 +119,7 @@ await registerSocialRoutes(app, {
   authenticate,
   adminOnly,
   hasServerAccess: (request, serverId) => hasServerAccess(config, request, serverId),
+  isServerOwner: (request, serverId) => isServerOwner(config, request, serverId),
 });
 await registerAccountRoutes(app, { db, authenticate });
 await registerDeveloperRoutes(app, { db, authenticate });
