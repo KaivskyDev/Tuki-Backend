@@ -110,7 +110,10 @@ services:
       PORT: 14800
       TUKI_MONGO_URL: mongodb://database:27017
       TUKI_DATABASE_NAME: tuki
+      TUKI_IDENTITY_DATABASE_NAME: revolt
       TUKI_IDENTITY_URL: http://api:14702
+      TUKI_PUBLIC_URL: https://core.muzes.xyz
+      TUKI_OAUTH_RETURN_URLS: https://chat.muzes.xyz/login/oauth
       TUKI_ALLOWED_ORIGINS: https://chat.muzes.xyz
       TUKI_ADMIN_USER_IDS: ${TUKI_ADMIN_USER_IDS:-}
       TUKI_TRUST_PROXY: "true"

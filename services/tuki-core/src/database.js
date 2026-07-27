@@ -9,6 +9,7 @@ export async function connectDatabase(config) {
 
   await client.connect();
   const db = client.db(config.databaseName);
+  const identityDb = client.db(config.identityDatabaseName);
 
   await Promise.all([
     db.collection("profiles").createIndex({ user_id: 1 }, { unique: true }),
@@ -39,7 +40,19 @@ export async function connectDatabase(config) {
     db.collection("webhooks").createIndex({ owner_id: 1, created_at: -1 }),
     db.collection("inbox_items").createIndex({ user_id: 1, created_at: -1 }),
     db.collection("inbox_items").createIndex({ user_id: 1, unread: 1 }),
+    db.collection("oauth_states").createIndex(
+      { expires_at: 1 },
+      { expireAfterSeconds: 0 },
+    ),
+    db.collection("oauth_exchanges").createIndex(
+      { expires_at: 1 },
+      { expireAfterSeconds: 0 },
+    ),
+    db.collection("oauth_identities").createIndex(
+      { provider: 1, subject: 1 },
+      { unique: true },
+    ),
   ]);
 
-  return { client, db };
+  return { client, db, identityDb };
 }

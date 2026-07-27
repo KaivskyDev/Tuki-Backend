@@ -13,6 +13,7 @@ import { sanitisePoll } from "./polls.js";
 import { registerAccountRoutes } from "./routes/account.js";
 import { registerDeveloperRoutes } from "./routes/developers.js";
 import { registerProductRoutes } from "./routes/product.js";
+import { registerOAuthRoutes } from "./routes/oauth.js";
 import { registerSocialRoutes } from "./routes/social.js";
 import { registerTelemetryRoutes } from "./routes/telemetry.js";
 
@@ -74,12 +75,13 @@ await app.register(swagger, {
 });
 
 const database = await connectDatabase(config);
-const { db } = database;
+const { db, identityDb } = database;
 const authenticate = createAuth(config);
 const adminOnly = requireAdmin(config);
 
 app.decorateRequest("tukiUser", null);
 registerTelemetryRoutes(app);
+registerOAuthRoutes(app, { config, db, identityDb });
 app.addHook("onResponse", async (_request, reply) => recordRequest(reply));
 app.addHook("onClose", async () => database.client.close());
 
