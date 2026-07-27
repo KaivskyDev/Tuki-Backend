@@ -57,6 +57,12 @@ services:
       MINIO_DOMAIN: minio
     volumes:
       - ./data/minio:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
     networks:
       data:
         aliases:
@@ -72,7 +78,7 @@ services:
     restart: "no"
     depends_on:
       minio:
-        condition: service_started
+        condition: service_healthy
     env_file: secrets.env
     networks: [data]
     entrypoint: >
@@ -97,6 +103,8 @@ services:
       dockerfile: Dockerfile
     image: tuki-core:1.0.0
     restart: unless-stopped
+    env_file:
+      - secrets.env
     environment:
       HOST: 0.0.0.0
       PORT: 14800
@@ -242,7 +250,6 @@ services:
 networks:
   edge:
   app:
-    internal: true
   data:
     internal: true
 
