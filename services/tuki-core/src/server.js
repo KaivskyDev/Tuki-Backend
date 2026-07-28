@@ -15,7 +15,10 @@ import { config } from "./config.js";
 import { connectDatabase } from "./database.js";
 import { recordRequest, renderMetrics } from "./metrics.js";
 import { sanitisePoll } from "./polls.js";
-import { registerAccountRoutes } from "./routes/account.js";
+import {
+  purgeExpiredAccounts,
+  registerAccountRoutes,
+} from "./routes/account.js";
 import { registerDeveloperRoutes } from "./routes/developers.js";
 import { registerGifRoutes } from "./routes/gifs.js";
 import { registerProductRoutes } from "./routes/product.js";
@@ -24,6 +27,7 @@ import { registerSocialRoutes } from "./routes/social.js";
 import { registerTelemetryRoutes } from "./routes/telemetry.js";
 
 const app = Fastify({
+  bodyLimit: 1_000_000,
   logger: {
     level: process.env.LOG_LEVEL ?? "info",
     redact: [
@@ -82,15 +86,37 @@ await app.register(swagger, {
 
 const database = await connectDatabase(config);
 const { db, identityDb } = database;
+let deletionPurgeTimer;
+let deletionPurgeRunning = false;
 const authenticate = createAuth(config);
 const adminOnly = requireAdmin(config);
 
 app.decorateRequest("tukiUser", null);
+app.addHook("onSend", async (request, reply, payload) => {
+  reply.header("X-Content-Type-Options", "nosniff");
+  reply.header("X-Frame-Options", "DENY");
+  reply.header("Referrer-Policy", "no-referrer");
+  reply.header("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  reply.header("Cross-Origin-Resource-Policy", "same-site");
+  if (
+    request.url.startsWith("/v1/account") ||
+    request.url.startsWith("/v1/oauth") ||
+    request.url.startsWith("/v1/profile") ||
+    request.url.startsWith("/v1/notification-preferences")
+  ) {
+    reply.header("Cache-Control", "no-store");
+    reply.header("Pragma", "no-cache");
+  }
+  return payload;
+});
 registerTelemetryRoutes(app);
 registerOAuthRoutes(app, { config, db, identityDb });
 registerGifRoutes(app, { config, authenticate });
 app.addHook("onResponse", async (_request, reply) => recordRequest(reply));
-app.addHook("onClose", async () => database.client.close());
+app.addHook("onClose", async () => {
+  if (deletionPurgeTimer) clearInterval(deletionPurgeTimer);
+  await database.client.close();
+});
 
 app.get("/health/live", async () => ({
   status: "ok",
@@ -121,7 +147,7 @@ await registerSocialRoutes(app, {
   hasServerAccess: (request, serverId) => hasServerAccess(config, request, serverId),
   isServerOwner: (request, serverId) => isServerOwner(config, request, serverId),
 });
-await registerAccountRoutes(app, { db, authenticate });
+await registerAccountRoutes(app, { db, identityDb, authenticate });
 await registerDeveloperRoutes(app, { db, authenticate });
 await registerProductRoutes(app, { db, authenticate, adminOnly });
 
@@ -672,6 +698,11 @@ app.get(
       user_id: request.tukiUser.id,
       quiet_hours: null,
       digest: "off",
+      direct_messages: true,
+      mentions: true,
+      replies: true,
+      events: true,
+      lock_screen_preview: false,
     },
 );
 
@@ -685,6 +716,11 @@ app.put(
         additionalProperties: false,
         properties: {
           digest: { enum: ["off", "daily", "weekly"] },
+          direct_messages: { type: "boolean" },
+          mentions: { type: "boolean" },
+          replies: { type: "boolean" },
+          events: { type: "boolean" },
+          lock_screen_preview: { type: "boolean" },
           quiet_hours: {
             anyOf: [
               { type: "null" },
@@ -696,6 +732,12 @@ app.put(
                   start: { type: "string", pattern: "^\\d{2}:\\d{2}$" },
                   end: { type: "string", pattern: "^\\d{2}:\\d{2}$" },
                   timezone: { type: "string", maxLength: 64 },
+                  days: {
+                    type: "array",
+                    uniqueItems: true,
+                    maxItems: 7,
+                    items: { type: "integer", minimum: 0, maximum: 6 },
+                  },
                 },
               },
             ],
@@ -740,6 +782,20 @@ app.setErrorHandler((error, request, reply) => {
 
 try {
   await app.listen({ host: config.host, port: config.port });
+  const runDeletionPurge = async () => {
+    if (deletionPurgeRunning) return;
+    deletionPurgeRunning = true;
+    try {
+      await purgeExpiredAccounts({ db, identityDb, logger: app.log });
+    } catch (error) {
+      app.log.error({ err: error }, "scheduled account purge failed");
+    } finally {
+      deletionPurgeRunning = false;
+    }
+  };
+  void runDeletionPurge();
+  deletionPurgeTimer = setInterval(runDeletionPurge, 15 * 60 * 1000);
+  deletionPurgeTimer.unref();
 } catch (error) {
   app.log.fatal(error);
   process.exit(1);

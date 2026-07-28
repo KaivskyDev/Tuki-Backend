@@ -6,6 +6,7 @@ Feature flags are not treated as implementations.
 | Public service | URL | Internal service |
 | --- | --- | --- |
 | Web application | `https://chat.muzes.xyz` | separately deployed frontend |
+| Service status page | `https://chat.muzes.xyz/status` | frontend reachability view |
 | Core API (compatible routes) | `https://core.muzes.xyz` | `api:14702` |
 | Tuki Core API v1 | `https://core.muzes.xyz/v1` | `tuki-core:14800` |
 | Tuki health and OpenAPI | `https://core.muzes.xyz/health/*`, `/openapi.json` | `tuki-core:14800` |
@@ -26,7 +27,11 @@ Tuki Core service and are versioned under `/v1`.
 Implemented Tuki Core areas: extended profiles, bookmarks, private inbox,
 polls, events and RSVP, community discovery, forums, Tuki-owned search,
 reports, moderation history, appeals, raid mode, AutoMod configuration,
-notification preferences, devices, security history, recovery codes,
+notification preferences, registered-browser history, security history,
 developer applications, plans and entitlements, health checks, metrics and
-OpenAPI. Message-content search still requires a permission-aware index fed by
+OpenAPI. Account deletion uses a 30-day cancellable queue and an atomic
+background purge claim so multiple Core replicas cannot process the same
+account concurrently. Recovery codes, passkeys, TOTP and remote session revocation are
+reported as identity-service integrations instead of being simulated by the
+sidecar. Message-content search still requires a permission-aware index fed by
 the compatible messaging API.

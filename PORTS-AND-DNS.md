@@ -37,9 +37,10 @@ through the firewall.
 | `developers.muzes.xyz` | `tuki-core:14800` | API definition and future developer portal |
 | `search.muzes.xyz/v1/search` | `tuki-core:14800` | Tuki community, forum and event search |
 
-`tuki.muzes.xyz`, `status.muzes.xyz` and `support.muzes.xyz` should receive DNS
-records only after their separate website/services are deployed. They are not
-silently routed to the chat backend.
+`tuki.muzes.xyz` and `support.muzes.xyz` should receive DNS records only after
+their separate website/services are deployed. They are not silently routed to
+the chat backend. Service status is served inside the frontend at
+`https://chat.muzes.xyz/status`; `status.muzes.xyz` is not required.
 
 ## Internal Docker ports
 

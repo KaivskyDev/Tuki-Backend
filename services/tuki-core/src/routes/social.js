@@ -23,6 +23,14 @@ export async function registerSocialRoutes(app, { db, authenticate, adminOnly, h
     };
   });
 
+  app.get("/v1/discover/communities/:serverId", async (request, reply) => {
+    const community = await db.collection("communities").findOne(
+      { server_id: request.params.serverId, published: true },
+      { projection: { _id: 0, submitted_by: 0 } },
+    );
+    return community ?? reply.code(404).send({ error: "community_not_found" });
+  });
+
   app.put("/v1/admin/discover/communities/:serverId", {
     preHandler: [authenticate, adminOnly],
     schema: {
@@ -32,11 +40,15 @@ export async function registerSocialRoutes(app, { db, authenticate, adminOnly, h
         required: ["name", "description", "category", "language", "published"],
         properties: {
           name: { type: "string", minLength: 2, maxLength: 80 },
-          description: { type: "string", minLength: 10, maxLength: 400 },
+          description: { type: "string", minLength: 0, maxLength: 400 },
           category: { enum: ["gaming", "music", "technology", "education", "art", "community", "other"] },
           language: { type: "string", minLength: 2, maxLength: 12 },
           icon_url: { type: ["string", "null"], maxLength: 500 },
           banner_url: { type: ["string", "null"], maxLength: 500 },
+          tags: { type: "array", maxItems: 6, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 24 } },
+          featured_channels: { type: "array", maxItems: 4, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 64 } },
+          moderation_level: { enum: ["standard", "enhanced", "strict"] },
+          online_count: { type: "integer", minimum: 0 },
           member_count: { type: "integer", minimum: 0 },
           verified: { type: "boolean" },
           published: { type: "boolean" },
@@ -79,10 +91,15 @@ export async function registerSocialRoutes(app, { db, authenticate, adminOnly, h
         required: ["name", "description", "category", "language", "published"],
         properties: {
           name: { type: "string", minLength: 2, maxLength: 80 },
-          description: { type: "string", minLength: 10, maxLength: 400 },
+          description: { type: "string", minLength: 0, maxLength: 400 },
           category: { enum: ["gaming", "music", "technology", "education", "art", "community", "other"] },
           language: { type: "string", minLength: 2, maxLength: 12 },
           icon_url: { type: ["string", "null"], maxLength: 500 },
+          banner_url: { type: ["string", "null"], maxLength: 500 },
+          tags: { type: "array", maxItems: 6, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 24 } },
+          featured_channels: { type: "array", maxItems: 4, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 64 } },
+          moderation_level: { enum: ["standard", "enhanced", "strict"] },
+          online_count: { type: "integer", minimum: 0 },
           invite_code: { type: ["string", "null"], minLength: 3, maxLength: 64 },
           member_count: { type: "integer", minimum: 0 },
           published: { type: "boolean" },
@@ -92,6 +109,9 @@ export async function registerSocialRoutes(app, { db, authenticate, adminOnly, h
   }, async (request, reply) => {
     if (!(await isServerOwner(request, request.params.serverId))) {
       return reply.code(403).send({ error: "server_owner_required" });
+    }
+    if (request.body.published && request.body.description.trim().length < 10) {
+      return reply.code(400).send({ error: "discover_description_too_short" });
     }
     const community = {
       server_id: request.params.serverId,

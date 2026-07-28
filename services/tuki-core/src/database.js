@@ -25,6 +25,9 @@ export async function connectDatabase(config) {
     db
       .collection("notification_preferences")
       .createIndex({ user_id: 1 }, { unique: true }),
+    db
+      .collection("privacy_preferences")
+      .createIndex({ user_id: 1 }, { unique: true }),
     db.collection("communities").createIndex({ server_id: 1 }, { unique: true }),
     db.collection("communities").createIndex({ published: 1, member_count: -1 }),
     db.collection("forum_threads").createIndex({ channel_id: 1, bumped_at: -1 }),
@@ -35,6 +38,21 @@ export async function connectDatabase(config) {
     db.collection("forum_posts").createIndex({ thread_id: 1, created_at: 1 }),
     db.collection("security_events").createIndex({ user_id: 1, created_at: -1 }),
     db.collection("devices").createIndex({ user_id: 1, device_id: 1 }, { unique: true }),
+    db.collection("account_deletions").createIndex(
+      { user_id: 1 },
+      {
+        unique: true,
+        partialFilterExpression: { status: "pending" },
+      },
+    ),
+    db.collection("account_deletions").createIndex({ status: 1, scheduled_for: 1 }),
+    db.collection("account_deletions").createIndex(
+      { completed_at: 1 },
+      {
+        expireAfterSeconds: 90 * 24 * 60 * 60,
+        partialFilterExpression: { status: "completed" },
+      },
+    ),
     db.collection("developer_apps").createIndex({ owner_id: 1, created_at: -1 }),
     db.collection("developer_apps").createIndex({ client_id: 1 }, { unique: true }),
     db.collection("webhooks").createIndex({ owner_id: 1, created_at: -1 }),

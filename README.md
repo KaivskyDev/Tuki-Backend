@@ -17,7 +17,7 @@ maintained separately.
 - `media.muzes.xyz` — external media, embeds and GIF proxy
 - `voice.muzes.xyz` — calls and voice ingress
 - `invite.muzes.xyz` — short invite links
-- `status.muzes.xyz` — independent service status
+- `chat.muzes.xyz/status` — service status page inside the web application
 - `developers.muzes.xyz` — future developer portal
 - `support.muzes.xyz` — support and safety
 

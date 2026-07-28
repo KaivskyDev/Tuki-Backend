@@ -93,6 +93,8 @@ export async function registerProductRoutes(app, { db, authenticate, adminOnly }
     },
   }, async (request, reply) => {
     const update = { ...request.body, updated_at: new Date() };
+    if (request.body.unread === false) update.read_at = new Date();
+    if (request.body.unread === true) update.read_at = null;
     if (update.snoozed_until) update.snoozed_until = new Date(update.snoozed_until);
     const item = await db.collection("inbox_items").findOneAndUpdate(
       { id: request.params.itemId, user_id: request.tukiUser.id },

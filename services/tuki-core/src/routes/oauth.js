@@ -162,7 +162,22 @@ async function createIdentitySession({ db, identityDb, provider, profile }) {
 }
 
 export function registerOAuthRoutes(app, { config, db, identityDb }) {
-  app.get("/v1/oauth/:provider/start", async (request, reply) => {
+  app.get("/v1/oauth/:provider/start", {
+    config: { rateLimit: { max: 20, timeWindow: "10 minutes" } },
+    schema: {
+      params: {
+        type: "object",
+        required: ["provider"],
+        properties: { provider: { enum: ["google", "discord"] } },
+      },
+      querystring: {
+        type: "object",
+        additionalProperties: false,
+        required: ["return_to"],
+        properties: { return_to: { type: "string", maxLength: 500 } },
+      },
+    },
+  }, async (request, reply) => {
     const { provider } = request.params;
     const definition = PROVIDERS[provider];
     const credentials = config.oauth[provider];
@@ -196,7 +211,25 @@ export function registerOAuthRoutes(app, { config, db, identityDb }) {
     return reply.redirect(url.toString());
   });
 
-  app.get("/v1/oauth/:provider/callback", async (request, reply) => {
+  app.get("/v1/oauth/:provider/callback", {
+    config: { rateLimit: { max: 30, timeWindow: "10 minutes" } },
+    schema: {
+      params: {
+        type: "object",
+        required: ["provider"],
+        properties: { provider: { enum: ["google", "discord"] } },
+      },
+      querystring: {
+        type: "object",
+        additionalProperties: true,
+        properties: {
+          code: { type: "string", maxLength: 2048 },
+          state: { type: "string", maxLength: 512 },
+          error: { type: "string", maxLength: 256 },
+        },
+      },
+    },
+  }, async (request, reply) => {
     const { provider } = request.params;
     const state = await db.collection("oauth_states").findOneAndDelete({
       state_hash: sha256(request.query.state ?? ""),
@@ -233,7 +266,17 @@ export function registerOAuthRoutes(app, { config, db, identityDb }) {
     }
   });
 
-  app.post("/v1/oauth/exchange", async (request, reply) => {
+  app.post("/v1/oauth/exchange", {
+    config: { rateLimit: { max: 20, timeWindow: "10 minutes" } },
+    schema: {
+      body: {
+        type: "object",
+        additionalProperties: false,
+        required: ["code"],
+        properties: { code: { type: "string", minLength: 32, maxLength: 512 } },
+      },
+    },
+  }, async (request, reply) => {
     const code = typeof request.body?.code === "string" ? request.body.code : "";
     const exchange = await db.collection("oauth_exchanges").findOneAndDelete({
       code_hash: sha256(code),
