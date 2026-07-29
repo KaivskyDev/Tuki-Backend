@@ -14,6 +14,8 @@ This file prevents planned features from being presented as production-ready.
 - reports, immutable report submission, review queue and moderation history
 - appeals, AutoMod configuration and raid-mode configuration
 - registered-browser and security event history
+- session inventory, single-session revocation and revoking all other sessions
+- OAuth state protected with PKCE, an allowlisted callback and keyed HMAC
 - notification preferences, weekly quiet-hour schedule and digest preference
 - developer apps, scoped credentials, secret rotation and usage contract
 - Free and Plus product limits with entitlement storage
@@ -32,8 +34,8 @@ This file prevents planned features from being presented as production-ready.
 - connect account-deletion jobs to Autumn/MinIO object erasure and immutable
   legal-retention policy before claiming that every binary object is purged
 - configure coturn/TURN-TLS and regional LiveKit nodes
-- move passkeys, TOTP, login throttling and upstream session revocation into the
-  identity service; a sidecar cannot safely replace login semantics
+- move passkeys, TOTP and login throttling into the identity service; a sidecar
+  cannot safely replace login semantics
 - issue and verify recovery codes in the identity service; Tuki Core deliberately
   returns `501 identity_integration_required` instead of creating unusable codes
 - add per-person, per-server and per-channel notification overrides to the

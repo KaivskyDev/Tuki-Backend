@@ -114,7 +114,7 @@ services:
       TUKI_IDENTITY_URL: http://api:14702
       TUKI_PUBLIC_URL: https://core.muzes.xyz
       TUKI_OAUTH_RETURN_URLS: https://chat.muzes.xyz/login/oauth
-      TUKI_ALLOWED_ORIGINS: https://chat.muzes.xyz
+      TUKI_ALLOWED_ORIGINS: "${TUKI_ALLOWED_ORIGINS:-https://chat.muzes.xyz,http://localhost:8494,http://127.0.0.1:8494}"
       TUKI_ADMIN_USER_IDS: ${TUKI_ADMIN_USER_IDS:-}
       TUKI_TRUST_PROXY: "true"
     depends_on:

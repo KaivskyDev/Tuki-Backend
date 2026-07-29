@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomInt } from "node:crypto";
 
 const PROVIDERS = {
   google: {
@@ -18,6 +18,8 @@ const PROVIDERS = {
 const base64url = (value) => Buffer.from(value).toString("base64url");
 const sha256 = (value) =>
   createHash("sha256").update(value).digest("base64url");
+const stateHash = (value, secret) =>
+  createHmac("sha256", secret).update(value).digest("base64url");
 
 function ulid() {
   const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -105,7 +107,9 @@ async function createIdentitySession({ db, identityDb, provider, profile }) {
         _id: userId,
         email: profile.email,
         email_normalised: profile.email,
-        password: "oauth-only",
+        // OAuth-only accounts get a unique, unguessable value. They never
+        // share a sentinel password and cannot authenticate with it.
+        password: base64url(randomBytes(48)),
         disabled: false,
         verification: { status: "Verified" },
         password_reset: null,
@@ -117,7 +121,7 @@ async function createIdentitySession({ db, identityDb, provider, profile }) {
     if (!(await users.findOne({ _id: userId }))) {
       let discriminator;
       do {
-        discriminator = String(2 + Math.floor(Math.random() * 9997)).padStart(4, "0");
+        discriminator = String(randomInt(2, 9999)).padStart(4, "0");
       } while (
         await users.findOne({
           username: safeUsername(profile),
@@ -181,7 +185,12 @@ export function registerOAuthRoutes(app, { config, db, identityDb }) {
     const { provider } = request.params;
     const definition = PROVIDERS[provider];
     const credentials = config.oauth[provider];
-    if (!definition || !credentials?.clientId || !credentials?.clientSecret) {
+    if (
+      !definition ||
+      !credentials?.clientId ||
+      !credentials?.clientSecret ||
+      config.oauth.stateSecret.length < 32
+    ) {
       return reply.code(404).send({ error: "oauth_provider_unavailable" });
     }
     const returnTo = request.query.return_to;
@@ -191,7 +200,7 @@ export function registerOAuthRoutes(app, { config, db, identityDb }) {
     const state = base64url(randomBytes(32));
     const verifier = base64url(randomBytes(48));
     await db.collection("oauth_states").insertOne({
-      state_hash: sha256(state),
+      state_hash: stateHash(state, config.oauth.stateSecret),
       provider,
       verifier,
       return_to: returnTo,
@@ -232,7 +241,10 @@ export function registerOAuthRoutes(app, { config, db, identityDb }) {
   }, async (request, reply) => {
     const { provider } = request.params;
     const state = await db.collection("oauth_states").findOneAndDelete({
-      state_hash: sha256(request.query.state ?? ""),
+      state_hash: stateHash(
+        request.query.state ?? "",
+        config.oauth.stateSecret,
+      ),
       provider,
       expires_at: { $gt: new Date() },
     });

@@ -3,6 +3,125 @@ import { randomUUID } from "node:crypto";
 const DELETION_GRACE_MS = 30 * 24 * 60 * 60 * 1000;
 
 export async function registerAccountRoutes(app, { db, identityDb, authenticate }) {
+  app.get("/v1/account/sessions", {
+    preHandler: authenticate,
+    schema: {
+      response: {
+        200: {
+          type: "object",
+          required: ["items"],
+          properties: {
+            items: {
+              type: "array",
+              items: {
+                type: "object",
+                required: ["id", "name", "current"],
+                properties: {
+                  id: { type: "string" },
+                  name: { type: "string" },
+                  current: { type: "boolean" },
+                  origin: { type: ["string", "null"] },
+                  last_seen: { type: ["string", "null"] },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  }, async (request) => {
+    const sessions = identityDb.collection("sessions");
+    const token = request.headers["x-session-token"];
+    const current = token
+      ? await sessions.findOne(
+          { user_id: request.tukiUser.id, token },
+          { projection: { _id: 1 } },
+        )
+      : null;
+    const items = await sessions
+      .find(
+        { user_id: request.tukiUser.id },
+        {
+          projection: {
+            _id: 1,
+            name: 1,
+            origin: 1,
+            last_seen: 1,
+          },
+        },
+      )
+      .sort({ last_seen: -1 })
+      .limit(100)
+      .toArray();
+
+    return {
+      items: items.map((session) => ({
+        id: String(session._id),
+        name: session.name || "Tuki session",
+        origin: session.origin ?? null,
+        last_seen: session.last_seen
+          ? new Date(session.last_seen).toISOString()
+          : null,
+        current: String(session._id) === String(current?._id),
+      })),
+    };
+  });
+
+  app.delete("/v1/account/sessions/:sessionId", {
+    preHandler: authenticate,
+    config: { rateLimit: { max: 20, timeWindow: "1 hour" } },
+    schema: {
+      params: {
+        type: "object",
+        additionalProperties: false,
+        required: ["sessionId"],
+        properties: {
+          sessionId: { type: "string", minLength: 1, maxLength: 128 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    if (request.tukiUser.bot) {
+      return reply.code(403).send({ error: "user_account_required" });
+    }
+    const result = await identityDb.collection("sessions").deleteOne({
+      _id: request.params.sessionId,
+      user_id: request.tukiUser.id,
+    });
+    if (!result.deletedCount) {
+      return reply.code(404).send({ error: "session_not_found" });
+    }
+    await securityEvent(db, request, "session_revoked", {
+      session_id: request.params.sessionId,
+    });
+    return reply.code(204).send();
+  });
+
+  app.post("/v1/account/sessions/revoke-others", {
+    preHandler: authenticate,
+    config: { rateLimit: { max: 6, timeWindow: "1 hour" } },
+  }, async (request, reply) => {
+    if (request.tukiUser.bot) {
+      return reply.code(403).send({ error: "user_account_required" });
+    }
+    const sessions = identityDb.collection("sessions");
+    const current = await sessions.findOne({
+      user_id: request.tukiUser.id,
+      token: request.headers["x-session-token"],
+    });
+    if (!current) {
+      return reply.code(401).send({ error: "invalid_session" });
+    }
+    const result = await sessions.deleteMany({
+      user_id: request.tukiUser.id,
+      _id: { $ne: current._id },
+    });
+    await securityEvent(db, request, "other_sessions_revoked", {
+      count: result.deletedCount,
+    });
+    return { revoked: result.deletedCount };
+  });
+
   app.get("/v1/account/deletion", { preHandler: authenticate }, async (request) => {
     const deletion = await db.collection("account_deletions").findOne(
       { user_id: request.tukiUser.id, status: "pending" },
@@ -215,7 +334,7 @@ export async function registerAccountRoutes(app, { db, identityDb, authenticate 
     passkeys: "requires_identity_service_integration",
     recovery_codes: "requires_identity_service_integration",
     device_history: "available",
-    upstream_session_revocation: "requires_identity_service_integration",
+    upstream_session_revocation: "available",
   }));
 }
 

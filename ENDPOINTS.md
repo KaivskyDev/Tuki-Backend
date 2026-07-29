@@ -28,10 +28,10 @@ Implemented Tuki Core areas: extended profiles, bookmarks, private inbox,
 polls, events and RSVP, community discovery, forums, Tuki-owned search,
 reports, moderation history, appeals, raid mode, AutoMod configuration,
 notification preferences, registered-browser history, security history,
-developer applications, plans and entitlements, health checks, metrics and
+session listing and revocation, developer applications, plans and entitlements, health checks, metrics and
 OpenAPI. Account deletion uses a 30-day cancellable queue and an atomic
 background purge claim so multiple Core replicas cannot process the same
-account concurrently. Recovery codes, passkeys, TOTP and remote session revocation are
-reported as identity-service integrations instead of being simulated by the
-sidecar. Message-content search still requires a permission-aware index fed by
-the compatible messaging API.
+account concurrently. Recovery codes, passkeys and TOTP are reported as
+identity-service integrations instead of being simulated by the sidecar.
+Message-content search still requires a permission-aware index fed by the
+compatible messaging API.

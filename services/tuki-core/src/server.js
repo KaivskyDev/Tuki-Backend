@@ -12,6 +12,7 @@ import {
   requireAdmin,
 } from "./auth.js";
 import { config } from "./config.js";
+import { createCorsOptions } from "./cors.js";
 import { connectDatabase } from "./database.js";
 import { recordRequest, renderMetrics } from "./metrics.js";
 import { sanitisePoll } from "./polls.js";
@@ -41,22 +42,7 @@ const app = Fastify({
   genReqId: (request) => request.headers["x-request-id"] ?? randomUUID(),
 });
 
-await app.register(cors, {
-  origin(origin, callback) {
-    if (!origin || config.allowedOrigins.includes(origin)) {
-      callback(null, true);
-      return;
-    }
-    callback(new Error("Origin is not allowed"), false);
-  },
-  allowedHeaders: [
-    "Content-Type",
-    "X-Session-Token",
-    "X-Bot-Token",
-    "X-Request-Id",
-  ],
-  methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-});
+await app.register(cors, createCorsOptions(config));
 
 await app.register(rateLimit, {
   max: 180,
@@ -95,6 +81,14 @@ app.decorateRequest("tukiUser", null);
 app.addHook("onSend", async (request, reply, payload) => {
   reply.header("X-Content-Type-Options", "nosniff");
   reply.header("X-Frame-Options", "DENY");
+  reply.header(
+    "Strict-Transport-Security",
+    "max-age=63072000; includeSubDomains; preload",
+  );
+  reply.header(
+    "Content-Security-Policy",
+    "default-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+  );
   reply.header("Referrer-Policy", "no-referrer");
   reply.header("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
   reply.header("Cross-Origin-Resource-Policy", "same-site");
@@ -127,9 +121,28 @@ app.get("/health/live", async () => ({
 app.get("/health/ready", async (_request, reply) => {
   try {
     await db.command({ ping: 1 });
-    return { status: "ready", database: "connected" };
   } catch {
-    return reply.code(503).send({ status: "not_ready", database: "offline" });
+    return reply.code(503).send({
+      status: "not_ready",
+      database: "offline",
+      identity: "unknown",
+    });
+  }
+  try {
+    await fetch(config.identityUrl, {
+      signal: AbortSignal.timeout(3_000),
+    });
+    return {
+      status: "ready",
+      database: "connected",
+      identity: "reachable",
+    };
+  } catch {
+    return reply.code(503).send({
+      status: "not_ready",
+      database: "connected",
+      identity: "unreachable",
+    });
   }
 });
 
