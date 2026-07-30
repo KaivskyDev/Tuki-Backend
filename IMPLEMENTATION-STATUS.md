@@ -8,7 +8,9 @@ This file prevents planned features from being presented as production-ready.
 - extended profiles and per-field privacy preferences
 - bookmarks and inbox actions
 - polls, events and RSVP
-- community discovery
+- community discovery with live presence, server emoji, new-server metadata and
+  cached seven-day message activity
+- Tuki-managed invite links with atomic usage limits and expiry
 - forum threads, posts, pinning and locking
 - search across Tuki communities, forums and events
 - reports, immutable report submission, review queue and moderation history

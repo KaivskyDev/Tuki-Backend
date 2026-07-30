@@ -112,6 +112,37 @@ export async function registerProductRoutes(app, { db, authenticate, adminOnly }
     return { updated: result.modifiedCount };
   });
 
+  app.post("/v1/inbox/channels/:channelId/read", {
+    preHandler: authenticate,
+    schema: {
+      params: {
+        type: "object",
+        additionalProperties: false,
+        required: ["channelId"],
+        properties: {
+          channelId: { type: "string", minLength: 1, maxLength: 64 },
+        },
+      },
+    },
+  }, async (request) => {
+    const readAt = new Date();
+    const result = await db.collection("inbox_items").updateMany(
+      {
+        user_id: request.tukiUser.id,
+        channel_id: request.params.channelId,
+        unread: true,
+      },
+      {
+        $set: {
+          unread: false,
+          read_at: readAt,
+          updated_at: readAt,
+        },
+      },
+    );
+    return { updated: result.modifiedCount };
+  });
+
   app.post("/v1/admin/moderation/actions", {
     preHandler: [authenticate, adminOnly],
     schema: {

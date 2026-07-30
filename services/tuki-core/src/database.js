@@ -22,6 +22,19 @@ export async function connectDatabase(config) {
     db.collection("events").createIndex({ attendees: 1, starts_at: 1 }),
     db.collection("reports").createIndex({ status: 1, created_at: -1 }),
     db.collection("automod_rules").createIndex({ server_id: 1, enabled: 1 }),
+    db.collection("automod_rules").createIndex(
+      { server_id: 1, id: 1 },
+      {
+        unique: true,
+        partialFilterExpression: { id: { $type: "string" } },
+      },
+    ),
+    db.collection("server_audit_events").createIndex(
+      { server_id: 1, created_at: -1, id: -1 },
+    ),
+    db.collection("server_audit_events").createIndex(
+      { server_id: 1, action: 1, created_at: -1 },
+    ),
     db
       .collection("notification_preferences")
       .createIndex({ user_id: 1 }, { unique: true }),
@@ -30,6 +43,7 @@ export async function connectDatabase(config) {
       .createIndex({ user_id: 1 }, { unique: true }),
     db.collection("communities").createIndex({ server_id: 1 }, { unique: true }),
     db.collection("communities").createIndex({ published: 1, member_count: -1 }),
+    db.collection("communities").createIndex({ published: 1, created_at: -1 }),
     db.collection("community_presence").createIndex(
       { server_id: 1, user_id: 1 },
       { unique: true },
@@ -37,6 +51,14 @@ export async function connectDatabase(config) {
     db.collection("community_presence").createIndex(
       { expires_at: 1 },
       { expireAfterSeconds: 0 },
+    ),
+    db.collection("managed_invites").createIndex({ code: 1 }, { unique: true }),
+    db.collection("managed_invites").createIndex(
+      { expires_at: 1 },
+      { expireAfterSeconds: 0 },
+    ),
+    db.collection("managed_invites").createIndex(
+      { created_by: 1, created_at: -1 },
     ),
     db.collection("forum_threads").createIndex({ channel_id: 1, bumped_at: -1 }),
     db.collection("forum_threads").createIndex(

@@ -22,6 +22,7 @@ import {
 } from "./routes/account.js";
 import { registerDeveloperRoutes } from "./routes/developers.js";
 import { registerGifRoutes } from "./routes/gifs.js";
+import { registerModerationRoutes } from "./routes/moderation.js";
 import { registerProductRoutes } from "./routes/product.js";
 import { registerOAuthRoutes } from "./routes/oauth.js";
 import { registerSocialRoutes } from "./routes/social.js";
@@ -176,6 +177,12 @@ await registerSocialRoutes(app, {
 await registerAccountRoutes(app, { db, identityDb, authenticate });
 await registerDeveloperRoutes(app, { db, authenticate });
 await registerProductRoutes(app, { db, authenticate, adminOnly });
+await registerModerationRoutes(app, {
+  db,
+  authenticate,
+  isServerOwner: (request, serverId) =>
+    isServerOwner(config, request, serverId),
+});
 
 app.get("/v1/profile", { preHandler: authenticate }, async (request) => {
   const profile = await db

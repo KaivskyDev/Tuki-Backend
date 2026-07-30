@@ -229,29 +229,63 @@ export async function registerAccountRoutes(app, { db, identityDb, authenticate 
         type: "object",
         additionalProperties: false,
         required: Object.keys(defaultPrivacy),
-        properties: {
-          friend_requests: { enum: ["everyone", "mutuals", "nobody"] },
-          direct_messages: { enum: ["everyone", "friends", "nobody"] },
-          activity: { enum: ["everyone", "friends", "nobody"] },
-          online_status: { enum: ["everyone", "friends", "nobody"] },
-          read_receipts: { type: "boolean" },
-          mutual_friends: { type: "boolean" },
-          profile_servers: { type: "boolean" },
-          discover_by_email: { type: "boolean" },
-          suspicious_message_filter: { type: "boolean" },
-          block_nsfw: { type: "boolean" },
-        },
+        properties: privacyProperties,
+      },
+    },
+  }, replacePrivacyPreferences);
+
+  app.patch("/v1/account/privacy", {
+    preHandler: authenticate,
+    schema: {
+      body: {
+        type: "object",
+        additionalProperties: false,
+        minProperties: 1,
+        properties: privacyProperties,
       },
     },
   }, async (request) => {
-    const preferences = { ...request.body, updated_at: new Date() };
+    const now = new Date();
+    const current = await db.collection("privacy_preferences").findOne(
+      { user_id: request.tukiUser.id },
+      { projection: { _id: 0, user_id: 0 } },
+    );
+    const preferences = {
+      ...defaultPrivacy,
+      ...current,
+      ...request.body,
+      updated_at: now,
+    };
     await db.collection("privacy_preferences").updateOne(
       { user_id: request.tukiUser.id },
-      { $set: preferences },
+      {
+        $set: preferences,
+        $setOnInsert: {
+          user_id: request.tukiUser.id,
+          created_at: now,
+        },
+      },
       { upsert: true },
     );
-    return request.body;
+    return preferences;
   });
+
+  async function replacePrivacyPreferences(request) {
+    const now = new Date();
+    const preferences = { ...request.body, updated_at: now };
+    await db.collection("privacy_preferences").updateOne(
+      { user_id: request.tukiUser.id },
+      {
+        $set: preferences,
+        $setOnInsert: {
+          user_id: request.tukiUser.id,
+          created_at: now,
+        },
+      },
+      { upsert: true },
+    );
+    return preferences;
+  }
   app.get("/v1/account/devices", { preHandler: authenticate }, async (request) => ({
     items: await db.collection("devices")
       .find({ user_id: request.tukiUser.id }, { projection: { _id: 0 } })
@@ -449,6 +483,9 @@ export async function purgeExpiredAccounts({ db, identityDb, logger }) {
 
 const defaultPrivacy = Object.freeze({
   friend_requests: "mutuals",
+  message_requests: "mutuals",
+  server_invites: "friends",
+  group_invites: "friends",
   direct_messages: "friends",
   activity: "friends",
   online_status: "friends",
@@ -457,7 +494,25 @@ const defaultPrivacy = Object.freeze({
   profile_servers: false,
   discover_by_email: false,
   suspicious_message_filter: true,
+  spam_message_requests: false,
   block_nsfw: true,
+});
+
+const privacyProperties = Object.freeze({
+  friend_requests: { enum: ["everyone", "mutuals", "nobody"] },
+  message_requests: { enum: ["everyone", "mutuals", "nobody"] },
+  server_invites: { enum: ["everyone", "friends", "nobody"] },
+  group_invites: { enum: ["everyone", "friends", "nobody"] },
+  direct_messages: { enum: ["everyone", "friends", "nobody"] },
+  activity: { enum: ["everyone", "friends", "nobody"] },
+  online_status: { enum: ["everyone", "friends", "nobody"] },
+  read_receipts: { type: "boolean" },
+  mutual_friends: { type: "boolean" },
+  profile_servers: { type: "boolean" },
+  discover_by_email: { type: "boolean" },
+  suspicious_message_filter: { type: "boolean" },
+  spam_message_requests: { type: "boolean" },
+  block_nsfw: { type: "boolean" },
 });
 
 async function securityEvent(db, request, type, details = {}) {

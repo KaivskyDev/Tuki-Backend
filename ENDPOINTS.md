@@ -25,7 +25,9 @@ Tuki's web client. Product-specific endpoints live in the separately built
 Tuki Core service and are versioned under `/v1`.
 
 Implemented Tuki Core areas: extended profiles, bookmarks, private inbox,
-polls, events and RSVP, community discovery, forums, Tuki-owned search,
+polls, events and RSVP, community discovery with live presence and cached
+seven-day message activity, managed invite links with expiry and usage limits,
+forums, Tuki-owned search,
 reports, moderation history, appeals, raid mode, AutoMod configuration,
 notification preferences, registered-browser history, security history,
 session listing and revocation, developer applications, plans and entitlements, health checks, metrics and
@@ -35,3 +37,16 @@ account concurrently. Recovery codes, passkeys and TOTP are reported as
 identity-service integrations instead of being simulated by the sidecar.
 Message-content search still requires a permission-aware index fed by the
 compatible messaging API.
+
+## Privacy and community safety
+
+| Method | Route | Access |
+| --- | --- | --- |
+| `GET` / `PUT` / `PATCH` | `/v1/account/privacy` | signed-in account |
+| `GET` / `POST` | `/v1/servers/:serverId/automod/rules` | community owner |
+| `PATCH` / `DELETE` | `/v1/servers/:serverId/automod/rules/:ruleId` | community owner |
+| `GET` | `/v1/servers/:serverId/audit-log` | community owner |
+
+AutoMod endpoints persist validated rules and their configuration audit events.
+Enforcement against live messages must be connected to the compatible message
+pipeline before these rules can block content in real time.
