@@ -153,8 +153,21 @@ app.get("/metrics", async (_request, reply) => {
 
 app.get("/openapi.json", async () => app.swagger());
 
+app.get("/v1/geo", async (request) => {
+  const countryCode = String(
+    request.headers["cf-ipcountry"] ??
+      request.headers["x-country-code"] ??
+      "XX",
+  ).toUpperCase();
+  return {
+    countryCode,
+    isAgeRestrictedGeo: countryCode === "GB",
+  };
+});
+
 await registerSocialRoutes(app, {
   db,
+  identityDb,
   authenticate,
   adminOnly,
   hasServerAccess: (request, serverId) => hasServerAccess(config, request, serverId),

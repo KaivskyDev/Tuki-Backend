@@ -2,7 +2,16 @@ import { randomUUID } from "node:crypto";
 
 const id = { type: "string", minLength: 1, maxLength: 64 };
 
-export async function registerSocialRoutes(app, { db, authenticate, adminOnly, hasServerAccess, isServerOwner }) {
+const PRESENCE_TTL_MS = 2 * 60 * 1000;
+
+export async function registerSocialRoutes(app, {
+  db,
+  identityDb,
+  authenticate,
+  adminOnly,
+  hasServerAccess,
+  isServerOwner,
+}) {
   app.get("/v1/discover/communities", async (request) => {
     const limit = Math.min(Number(request.query.limit ?? 24), 50);
     const filter = { published: true };
@@ -14,12 +23,13 @@ export async function registerSocialRoutes(app, { db, authenticate, adminOnly, h
         { description: { $regex: escapeRegex(request.query.q), $options: "i" } },
       ];
     }
-    return {
-      items: await db.collection("communities")
+    const communities = await db.collection("communities")
         .find(filter, { projection: { _id: 0, submitted_by: 0 } })
         .sort({ verified: -1, member_count: -1, name: 1 })
         .limit(limit)
-        .toArray(),
+        .toArray();
+    return {
+      items: await attachLiveCommunityStats(db, identityDb, communities),
     };
   });
 
@@ -28,7 +38,70 @@ export async function registerSocialRoutes(app, { db, authenticate, adminOnly, h
       { server_id: request.params.serverId, published: true },
       { projection: { _id: 0, submitted_by: 0 } },
     );
-    return community ?? reply.code(404).send({ error: "community_not_found" });
+    if (!community) {
+      return reply.code(404).send({ error: "community_not_found" });
+    }
+    return (await attachLiveCommunityStats(db, identityDb, [community]))[0];
+  });
+
+  app.post("/v1/discover/presence", {
+    preHandler: authenticate,
+    config: { rateLimit: { max: 4, timeWindow: "1 minute" } },
+    schema: {
+      body: {
+        type: "object",
+        additionalProperties: false,
+        required: ["server_ids"],
+        properties: {
+          server_ids: {
+            type: "array",
+            maxItems: 50,
+            uniqueItems: true,
+            items: id,
+          },
+        },
+      },
+    },
+  }, async (request) => {
+    const serverIds = request.body.server_ids;
+    const [memberships, ownedServers] = await Promise.all([
+      identityDb.collection("members").find(
+        { user: request.tukiUser.id, server: { $in: serverIds } },
+        { projection: { _id: 0, server: 1 } },
+      ).toArray(),
+      identityDb.collection("servers").find(
+        { _id: { $in: serverIds }, owner: request.tukiUser.id },
+        { projection: { _id: 1 } },
+      ).toArray(),
+    ]);
+    const allowed = new Set([
+      ...memberships.map((member) => member.server),
+      ...ownedServers.map((server) => server._id),
+    ]);
+    const accepted = serverIds.filter((serverId) => allowed.has(serverId));
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + PRESENCE_TTL_MS);
+
+    if (accepted.length) {
+      await db.collection("community_presence").bulkWrite(
+        accepted.map((serverId) => ({
+          updateOne: {
+            filter: { server_id: serverId, user_id: request.tukiUser.id },
+            update: {
+              $set: { updated_at: now, expires_at: expiresAt },
+              $setOnInsert: {
+                server_id: serverId,
+                user_id: request.tukiUser.id,
+              },
+            },
+            upsert: true,
+          },
+        })),
+        { ordered: false },
+      );
+    }
+
+    return { accepted, expires_at: expiresAt };
   });
 
   app.put("/v1/admin/discover/communities/:serverId", {
@@ -277,4 +350,34 @@ function escapeRegex(value) {
 function withoutMongoId(value) {
   const { _id, ...result } = value;
   return result;
+}
+
+async function attachLiveCommunityStats(db, identityDb, communities) {
+  const serverIds = communities.map((community) => community.server_id);
+  if (!serverIds.length) return communities;
+
+  const now = new Date();
+  const [presence, members] = await Promise.all([
+    db.collection("community_presence").aggregate([
+      { $match: { server_id: { $in: serverIds }, expires_at: { $gt: now } } },
+      { $group: { _id: "$server_id", count: { $sum: 1 } } },
+    ]).toArray(),
+    identityDb.collection("members").aggregate([
+      { $match: { server: { $in: serverIds } } },
+      { $group: { _id: "$server", count: { $sum: 1 } } },
+    ]).toArray(),
+  ]);
+  const onlineByServer = new Map(
+    presence.map((entry) => [entry._id, entry.count]),
+  );
+  const membersByServer = new Map(
+    members.map((entry) => [entry._id, entry.count]),
+  );
+
+  return communities.map((community) => ({
+    ...community,
+    member_count:
+      membersByServer.get(community.server_id) ?? community.member_count ?? 0,
+    online_count: onlineByServer.get(community.server_id) ?? 0,
+  }));
 }

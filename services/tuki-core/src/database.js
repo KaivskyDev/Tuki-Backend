@@ -30,6 +30,14 @@ export async function connectDatabase(config) {
       .createIndex({ user_id: 1 }, { unique: true }),
     db.collection("communities").createIndex({ server_id: 1 }, { unique: true }),
     db.collection("communities").createIndex({ published: 1, member_count: -1 }),
+    db.collection("community_presence").createIndex(
+      { server_id: 1, user_id: 1 },
+      { unique: true },
+    ),
+    db.collection("community_presence").createIndex(
+      { expires_at: 1 },
+      { expireAfterSeconds: 0 },
+    ),
     db.collection("forum_threads").createIndex({ channel_id: 1, bumped_at: -1 }),
     db.collection("forum_threads").createIndex(
       { title: "text", body: "text", tags: "text" },
