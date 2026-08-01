@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { isTrustedGifUrl } from "../src/routes/gifs.js";
-import { statusForResponse } from "../src/routes/status.js";
+import { isValidWebSocketHandshake, statusForResponse } from "../src/routes/status.js";
 import { monthWindow, uploadTag } from "../src/routes/uploads.js";
 
 test("GIF proxy accepts provider media and rejects SSRF targets", () => {
@@ -18,6 +18,19 @@ test("status monitor treats redirects and client responses as reachable", () => 
   assert.equal(statusForResponse(308), "operational");
   assert.equal(statusForResponse(404), "operational");
   assert.equal(statusForResponse(502), "outage");
+});
+
+test("status monitor validates a WebSocket upgrade instead of a plain HTTP response", () => {
+  const key = "dGhlIHNhbXBsZSBub25jZQ==";
+  const headers = [
+    "HTTP/1.1 101 Switching Protocols",
+    "Upgrade: websocket",
+    "Connection: Upgrade",
+    "Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=",
+  ].join("\r\n");
+  assert.equal(isValidWebSocketHandshake(headers, key), true);
+  assert.equal(isValidWebSocketHandshake(headers.replace("101", "200"), key), false);
+  assert.equal(isValidWebSocketHandshake(headers.replace("s3pPL", "invalid"), key), false);
 });
 
 test("upload authorisation accepts only known Autumn upload collections", () => {

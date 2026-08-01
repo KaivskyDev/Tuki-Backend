@@ -1,10 +1,14 @@
+import { createHash, randomBytes } from "node:crypto";
+import { connect as connectTls } from "node:tls";
+
 const CHECK_INTERVAL_MS = 5 * 60 * 1_000;
 const RETENTION_MS = 90 * 24 * 60 * 60 * 1_000;
+const WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 const SERVICES = [
   { id: "web", url: "https://chat.muzes.xyz/" },
   { id: "core", url: "https://core.muzes.xyz/health/live" },
-  { id: "gateway", url: "https://gateway.muzes.xyz/" },
+  { id: "gateway", url: "https://gateway.muzes.xyz/", kind: "websocket" },
   { id: "files", url: "https://cdn.muzes.xyz/" },
   { id: "media", url: "https://media.muzes.xyz/" },
   { id: "voice", url: "https://voice.muzes.xyz/" },
@@ -14,9 +18,91 @@ export function statusForResponse(status) {
   return status < 500 ? "operational" : "outage";
 }
 
+export function isValidWebSocketHandshake(headers, key) {
+  const [statusLine, ...lines] = headers.split("\r\n");
+  if (!/^HTTP\/1\.[01] 101(?:\s|$)/.test(statusLine)) return false;
+
+  const values = new Map(
+    lines
+      .map((line) => {
+        const separator = line.indexOf(":");
+        return separator === -1
+          ? ["", ""]
+          : [line.slice(0, separator).trim().toLowerCase(), line.slice(separator + 1).trim()];
+      })
+      .filter(([name]) => name),
+  );
+  const expected = createHash("sha1")
+    .update(`${key}${WEBSOCKET_GUID}`)
+    .digest("base64");
+  return (
+    values.get("upgrade")?.toLowerCase() === "websocket" &&
+    values.get("connection")?.toLowerCase().split(/\s*,\s*/).includes("upgrade") &&
+    values.get("sec-websocket-accept") === expected
+  );
+}
+
+function probeWebSocket(url, timeoutMs = 8_000) {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const key = randomBytes(16).toString("base64");
+    let response = "";
+    let settled = false;
+    let socket;
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      socket?.destroy();
+      error ? reject(error) : resolve(101);
+    };
+    socket = connectTls({
+      host: target.hostname,
+      port: Number(target.port || 443),
+      servername: target.hostname,
+      rejectUnauthorized: true,
+    });
+    socket.setTimeout(timeoutMs, () => finish(new Error("WebSocketTimeout")));
+    socket.once("error", finish);
+    socket.once("secureConnect", () => {
+      const path = `${target.pathname || "/"}${target.search}`;
+      socket.write(
+        [
+          `GET ${path} HTTP/1.1`,
+          `Host: ${target.host}`,
+          "Connection: Upgrade",
+          "Upgrade: websocket",
+          "Sec-WebSocket-Version: 13",
+          `Sec-WebSocket-Key: ${key}`,
+          "User-Agent: Tuki-Status/1.0",
+          "",
+          "",
+        ].join("\r\n"),
+      );
+    });
+    socket.on("data", (chunk) => {
+      response += chunk.toString("latin1");
+      const end = response.indexOf("\r\n\r\n");
+      if (end === -1) return;
+      if (isValidWebSocketHandshake(response.slice(0, end), key)) finish();
+      else finish(new Error("InvalidWebSocketHandshake"));
+    });
+    socket.once("end", () => finish(new Error("WebSocketClosedBeforeHandshake")));
+  });
+}
+
 async function observe(service) {
   const startedAt = performance.now();
   try {
+    if (service.kind === "websocket") {
+      const status = await probeWebSocket(service.url);
+      return {
+        service_id: service.id,
+        checked_at: new Date(),
+        latency_ms: Math.round(performance.now() - startedAt),
+        status_code: status,
+        status: "operational",
+      };
+    }
     const response = await fetch(service.url, {
       cache: "no-store",
       redirect: "manual",
