@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import cors from "@fastify/cors";
+import multipart from "@fastify/multipart";
 import rateLimit from "@fastify/rate-limit";
 import swagger from "@fastify/swagger";
 import Fastify from "fastify";
@@ -23,10 +24,16 @@ import {
 import { registerDeveloperRoutes } from "./routes/developers.js";
 import { registerGifRoutes } from "./routes/gifs.js";
 import { registerModerationRoutes } from "./routes/moderation.js";
+import {
+  createMembershipExpiryReminders,
+  registerPaymentRoutes,
+} from "./routes/payments.js";
 import { registerProductRoutes } from "./routes/product.js";
 import { registerOAuthRoutes } from "./routes/oauth.js";
 import { registerSocialRoutes } from "./routes/social.js";
+import { registerStatusRoutes } from "./routes/status.js";
 import { registerTelemetryRoutes } from "./routes/telemetry.js";
+import { registerUploadRoutes } from "./routes/uploads.js";
 
 const app = Fastify({
   bodyLimit: 1_000_000,
@@ -44,6 +51,20 @@ const app = Fastify({
 });
 
 await app.register(cors, createCorsOptions(config));
+await app.register(multipart, {
+  limits: { fields: 12, files: 0, fieldSize: 4_096 },
+});
+app.addContentTypeParser(
+  "application/x-www-form-urlencoded",
+  { parseAs: "string" },
+  (_request, body, done) => {
+    try {
+      done(null, Object.fromEntries(new URLSearchParams(body)));
+    } catch (error) {
+      done(error);
+    }
+  },
+);
 
 await app.register(rateLimit, {
   max: 180,
@@ -75,6 +96,8 @@ const database = await connectDatabase(config);
 const { db, identityDb } = database;
 let deletionPurgeTimer;
 let deletionPurgeRunning = false;
+let membershipReminderTimer;
+let membershipReminderRunning = false;
 const authenticate = createAuth(config);
 const adminOnly = requireAdmin(config);
 
@@ -97,7 +120,10 @@ app.addHook("onSend", async (request, reply, payload) => {
     request.url.startsWith("/v1/account") ||
     request.url.startsWith("/v1/oauth") ||
     request.url.startsWith("/v1/profile") ||
-    request.url.startsWith("/v1/notification-preferences")
+    request.url.startsWith("/v1/notification-preferences") ||
+    request.url.startsWith("/v1/payments") ||
+    request.url.startsWith("/v1/memberships") ||
+    request.url.startsWith("/v1/uploads")
   ) {
     reply.header("Cache-Control", "no-store");
     reply.header("Pragma", "no-cache");
@@ -107,9 +133,12 @@ app.addHook("onSend", async (request, reply, payload) => {
 registerTelemetryRoutes(app);
 registerOAuthRoutes(app, { config, db, identityDb });
 registerGifRoutes(app, { config, authenticate });
+registerUploadRoutes(app, { config, db, authenticate });
+await registerStatusRoutes(app, { db });
 app.addHook("onResponse", async (_request, reply) => recordRequest(reply));
 app.addHook("onClose", async () => {
   if (deletionPurgeTimer) clearInterval(deletionPurgeTimer);
+  if (membershipReminderTimer) clearInterval(membershipReminderTimer);
   await database.client.close();
 });
 
@@ -177,6 +206,7 @@ await registerSocialRoutes(app, {
 await registerAccountRoutes(app, { db, identityDb, authenticate });
 await registerDeveloperRoutes(app, { db, authenticate });
 await registerProductRoutes(app, { db, authenticate, adminOnly });
+await registerPaymentRoutes(app, { config, db, authenticate });
 await registerModerationRoutes(app, {
   db,
   authenticate,
@@ -829,6 +859,24 @@ try {
   void runDeletionPurge();
   deletionPurgeTimer = setInterval(runDeletionPurge, 15 * 60 * 1000);
   deletionPurgeTimer.unref();
+
+  const runMembershipReminders = async () => {
+    if (membershipReminderRunning) return;
+    membershipReminderRunning = true;
+    try {
+      await createMembershipExpiryReminders({ db });
+    } catch (error) {
+      app.log.error({ err: error }, "membership reminder job failed");
+    } finally {
+      membershipReminderRunning = false;
+    }
+  };
+  void runMembershipReminders();
+  membershipReminderTimer = setInterval(
+    runMembershipReminders,
+    60 * 60 * 1000,
+  );
+  membershipReminderTimer.unref();
 } catch (error) {
   app.log.fatal(error);
   process.exit(1);

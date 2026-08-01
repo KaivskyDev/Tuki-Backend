@@ -74,6 +74,37 @@ docker compose ps
 
 Back up MongoDB, MinIO and `secrets.env` before every major upgrade.
 
+## Enabling Orbit Max uploads
+
+Orbit Max must remain disabled until the CDN asks Tuki Core to authorise every
+upload. Use [`nginx-tuki-cdn.example.conf`](./nginx-tuki-cdn.example.conf) when
+the public CDN is served by Nginx, or keep the equivalent `forward_auth` block
+from the supplied `Caddyfile`.
+
+Enable the feature in this order:
+
+1. Add the upload-authorisation locations to the existing `cdn.muzes.xyz`
+   virtual host. Do not replace unrelated TLS or access-log settings.
+2. Test the Nginx configuration and reload it.
+3. Set `TUKI_STORAGE_ATTACHMENT_LIMIT_BYTES=500000000`. This is the storage
+   ceiling, not the free-account limit.
+4. Recreate `tuki-core` and `autumn`, then verify that an unauthenticated upload
+   is rejected and a free account is still limited to 10 MB.
+5. Only after those checks set `TUKI_HOTPAY_ORBIT_MAX_ENABLED=true` and recreate
+   `tuki-core`.
+
+```bash
+nginx -t && systemctl reload nginx
+docker compose config --quiet
+docker compose up -d --build --force-recreate tuki-core autumn
+docker compose ps tuki-core autumn
+```
+
+The defaults deliberately fail closed: free accounts keep a 10 MB attachment
+limit, emoji keep a 4 MB limit, and Orbit Max checkout stays unavailable. The
+authoriser also applies a 50 GB monthly upload allowance by default. Change
+these values only through the documented environment variables.
+
 ## Network exposure
 
 Only Caddy (`80/tcp`, `443/tcp`) and LiveKit RTC (`7881/tcp`,

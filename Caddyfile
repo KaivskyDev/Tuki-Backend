@@ -36,7 +36,21 @@
 {$CDN_HOSTNAME} {
 	import security_headers
 	encode zstd gzip
-	reverse_proxy autumn:14704
+
+	@upload method POST
+	handle @upload {
+		forward_auth tuki-core:14800 {
+			uri /v1/uploads/authorize
+			header_up X-Tuki-Upload-Method {http.request.method}
+			header_up X-Tuki-Upload-URI {http.request.uri}
+			header_up X-Tuki-Upload-Size {http.request.header.Content-Length}
+		}
+		reverse_proxy autumn:14704
+	}
+
+	handle {
+		reverse_proxy autumn:14704
+	}
 }
 
 {$MEDIA_HOSTNAME} {

@@ -26,6 +26,14 @@ secret = ""
 video_resolution = [1920, 1080]
 video_aspect_ratio = [0.3, 10]
 
+[features.limits.new_user.file_upload_size_limit]
+emojis = 4_000_000
+attachments = 10_000_000
+
 [features.limits.default]
 video_resolution = [1920, 1080]
 video_aspect_ratio = [0.3, 10]
+
+[features.limits.default.file_upload_size_limit]
+emojis = 4_000_000
+attachments = 10_000_000

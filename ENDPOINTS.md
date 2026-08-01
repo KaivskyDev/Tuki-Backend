@@ -3,6 +3,33 @@
 This deployment exposes only routes implemented by the running services.
 Feature flags are not treated as implementations.
 
+## Payments
+
+- `GET /v1/payments/plans` — public plan metadata.
+- `GET /v1/payments/me` — current membership and recent orders.
+- `GET /v1/memberships/:userId/badge` — public-facing active Orbit badge metadata for an authenticated viewer.
+- `POST /v1/payments/hotpay/checkout` — authenticated server-side HotPay initialisation.
+- `POST /v1/payments/hotpay/notification` — signed HotPay notification receiver.
+- `GET /v1/uploads/authorize` — internal reverse-proxy upload authorisation;
+  applies free and Orbit Max size/quota limits before Autumn receives a body.
+
+`orbit_30d` is the profile membership. `orbit_max_30d` is published in plan
+metadata but checkout remains disabled by default until the 500 MB upload and
+cross-community media entitlements are enforced by the storage/API layer. Do
+not enable `TUKI_HOTPAY_ORBIT_MAX_ENABLED` before that enforcement is deployed.
+
+`GET /v1/uploads/authorize` is an internal reverse-proxy subrequest, not a
+browser upload endpoint. Nginx/Caddy passes the original upload path, method,
+content length and account authorisation to it before proxying the request body
+to Autumn. Read requests do not use this check. The 500 MB Autumn ceiling is
+safe only while every public upload path is protected by this authoriser.
+
+HotPay panel: set the notification URL to
+`https://core.muzes.xyz/v1/payments/hotpay/notification`, use the exact
+`TUKI_HOTPAY_NOTIFICATION_PASSWORD`, and select a mailbox monitored by the
+operator. Pay by Link grants 30 days after a verified `SUCCESS`; it does not
+create an automatic recurring charge.
+
 | Public service | URL | Internal service |
 | --- | --- | --- |
 | Web application | `https://chat.muzes.xyz` | separately deployed frontend |

@@ -88,6 +88,13 @@ export async function connectDatabase(config) {
     db.collection("webhooks").createIndex({ owner_id: 1, created_at: -1 }),
     db.collection("inbox_items").createIndex({ user_id: 1, created_at: -1 }),
     db.collection("inbox_items").createIndex({ user_id: 1, unread: 1 }),
+    db.collection("inbox_items").createIndex(
+      { dedupe_key: 1 },
+      {
+        unique: true,
+        partialFilterExpression: { dedupe_key: { $type: "string" } },
+      },
+    ),
     db.collection("oauth_states").createIndex(
       { expires_at: 1 },
       { expireAfterSeconds: 0 },
@@ -99,6 +106,24 @@ export async function connectDatabase(config) {
     db.collection("oauth_identities").createIndex(
       { provider: 1, subject: 1 },
       { unique: true },
+    ),
+    db.collection("payment_orders").createIndex({ id: 1 }, { unique: true }),
+    db.collection("payment_orders").createIndex({ user_id: 1, created_at: -1 }),
+    db.collection("payment_orders").createIndex(
+      { payment_id: 1 },
+      {
+        unique: true,
+        partialFilterExpression: { payment_id: { $type: "string" } },
+      },
+    ),
+    db.collection("memberships").createIndex({ user_id: 1 }, { unique: true }),
+    db.collection("memberships").createIndex({ expires_at: 1 }),
+    db
+      .collection("upload_usage")
+      .createIndex({ user_id: 1, month: 1 }, { unique: true }),
+    db.collection("upload_usage").createIndex(
+      { expires_at: 1 },
+      { expireAfterSeconds: 0 },
     ),
   ]);
 
