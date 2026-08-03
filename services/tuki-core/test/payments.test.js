@@ -8,6 +8,7 @@ import {
   createNotificationHash,
   membershipBadge,
   normaliseAmount,
+  parseHotPayInitialisation,
 } from "../src/routes/payments.js";
 
 test("HotPay checkout hash follows the documented field order", () => {
@@ -54,6 +55,30 @@ test("payment amounts are canonical and reject malformed input", () => {
   assert.equal(normaliseAmount("59,9"), "59.90");
   assert.equal(normaliseAmount("59.999"), null);
   assert.equal(normaliseAmount("-1"), null);
+});
+
+test("HotPay initialisation accepts documented success variants and only trusted URLs", () => {
+  assert.equal(
+    parseHotPayInitialisation(JSON.stringify({ STATUS: true, URL: "https://platnosc.hotpay.pl/order" })),
+    "https://platnosc.hotpay.pl/order",
+  );
+  assert.equal(
+    parseHotPayInitialisation(JSON.stringify({ STATUS: "1", URL: "https://platnosc.hotpay.pl/order" })),
+    "https://platnosc.hotpay.pl/order",
+  );
+  assert.equal(
+    parseHotPayInitialisation("https://platnosc.hotpay.pl/order"),
+    "https://platnosc.hotpay.pl/order",
+  );
+  assert.equal(
+    parseHotPayInitialisation(JSON.stringify({ STATUS: false, URL: "https://platnosc.hotpay.pl/order" })),
+    null,
+  );
+  assert.equal(
+    parseHotPayInitialisation(JSON.stringify({ STATUS: true, URL: "https://fakehotpay.pl/order" })),
+    null,
+  );
+  assert.equal(parseHotPayInitialisation("not-json"), null);
 });
 
 test("membership expiry reminders are deduplicated per expiry and threshold", async () => {

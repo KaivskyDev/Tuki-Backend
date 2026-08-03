@@ -74,6 +74,29 @@ docker compose ps
 
 Back up MongoDB, MinIO and `secrets.env` before every major upgrade.
 
+## OAuth release check
+
+Google and Discord client secrets belong only in `secrets.env`. If a secret
+has appeared in a message, terminal recording or repository, rotate it in the
+provider console before launch and replace the value on the VPS. Never add a
+client secret to a `VITE_` variable.
+
+After testing the callback with one existing account and one new account for
+each provider, verify a disposable session against both Identity and Gateway:
+
+```bash
+docker compose exec \
+  -e TUKI_SMOKE_SESSION_TOKEN='DISPOSABLE_SESSION_TOKEN' \
+  -e TUKI_SMOKE_USER_ID='EXPECTED_USER_ID' \
+  tuki-core npm run test:oauth-session
+```
+
+The command prints only the result and user ID. It never prints the supplied
+session token. Revoke the disposable session immediately after the check.
+OAuth callback totals are available in Prometheus as
+`tuki_core_oauth_callbacks_total{provider,outcome}`; they contain no provider
+tokens, email addresses or profile data.
+
 ## Enabling Orbit Max uploads
 
 Orbit Max must remain disabled until the CDN asks Tuki Core to authorise every

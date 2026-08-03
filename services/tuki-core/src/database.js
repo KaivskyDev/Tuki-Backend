@@ -107,6 +107,10 @@ export async function connectDatabase(config) {
       { provider: 1, subject: 1 },
       { unique: true },
     ),
+    db.collection("oauth_identities").createIndex(
+      { user_id: 1, provider: 1 },
+      { unique: true },
+    ),
     db.collection("payment_orders").createIndex({ id: 1 }, { unique: true }),
     db.collection("payment_orders").createIndex({ user_id: 1, created_at: -1 }),
     db.collection("payment_orders").createIndex(

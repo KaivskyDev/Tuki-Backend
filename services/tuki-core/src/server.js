@@ -131,7 +131,7 @@ app.addHook("onSend", async (request, reply, payload) => {
   return payload;
 });
 registerTelemetryRoutes(app);
-registerOAuthRoutes(app, { config, db, identityDb });
+registerOAuthRoutes(app, { config, db, identityDb, authenticate });
 registerGifRoutes(app, { config, authenticate });
 registerUploadRoutes(app, { config, db, authenticate });
 await registerStatusRoutes(app, { db });

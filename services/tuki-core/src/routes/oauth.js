@@ -1,5 +1,8 @@
 import { createHash, createHmac, randomBytes, randomInt } from "node:crypto";
 
+import { recordOAuthCallback } from "../metrics.js";
+import { verifyIdentitySession } from "../oauth-session.js";
+
 const PROVIDERS = {
   google: {
     authorize: "https://accounts.google.com/o/oauth2/v2/auth",
@@ -20,6 +23,52 @@ const sha256 = (value) =>
   createHash("sha256").update(value).digest("base64url");
 const stateHash = (value, secret) =>
   createHmac("sha256", secret).update(value).digest("base64url");
+
+function appendQuery(url, values) {
+  const target = new URL(url);
+  for (const [key, value] of Object.entries(values)) {
+    target.searchParams.set(key, value);
+  }
+  return target.toString();
+}
+
+function providerAvailable(config, provider) {
+  const credentials = config.oauth[provider];
+  return Boolean(
+    PROVIDERS[provider] &&
+      credentials?.clientId &&
+      credentials?.clientSecret &&
+      config.oauth.stateSecret.length >= 32,
+  );
+}
+
+async function createOAuthStart({ db, config, provider, returnTo, mode, userId }) {
+  const definition = PROVIDERS[provider];
+  const credentials = config.oauth[provider];
+  const state = base64url(randomBytes(32));
+  const verifier = base64url(randomBytes(48));
+  await db.collection("oauth_states").insertOne({
+    state_hash: stateHash(state, config.oauth.stateSecret),
+    provider,
+    verifier,
+    return_to: returnTo,
+    mode,
+    user_id: userId ?? null,
+    expires_at: new Date(Date.now() + 10 * 60_000),
+  });
+  const url = new URL(definition.authorize);
+  url.search = new URLSearchParams({
+    client_id: credentials.clientId,
+    redirect_uri: `${config.publicUrl}/v1/oauth/${provider}/callback`,
+    response_type: "code",
+    scope: definition.scope,
+    state,
+    code_challenge: sha256(verifier),
+    code_challenge_method: "S256",
+    prompt: provider === "google" ? "select_account" : "consent",
+  });
+  return url.toString();
+}
 
 function ulid() {
   const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -110,6 +159,7 @@ async function createIdentitySession({ db, identityDb, provider, profile }) {
         // OAuth-only accounts get a unique, unguessable value. They never
         // share a sentinel password and cannot authenticate with it.
         password: base64url(randomBytes(48)),
+        oauth_only: true,
         disabled: false,
         verification: { status: "Verified" },
         password_reset: null,
@@ -150,6 +200,11 @@ async function createIdentitySession({ db, identityDb, provider, profile }) {
       },
       { upsert: true },
     );
+  } else {
+    await identities.updateOne(
+      { provider, subject: profile.subject },
+      { $set: { email: profile.email, last_login_at: new Date() } },
+    );
   }
 
   const session = {
@@ -165,7 +220,40 @@ async function createIdentitySession({ db, identityDb, provider, profile }) {
   return session;
 }
 
-export function registerOAuthRoutes(app, { config, db, identityDb }) {
+async function addSecurityEvent(db, request, userId, type, details = {}) {
+  await db.collection("security_events").insertOne({
+    id: base64url(randomBytes(18)),
+    user_id: userId,
+    type,
+    details,
+    ip: request.ip,
+    user_agent: request.headers["user-agent"]?.slice(0, 300) ?? null,
+    created_at: new Date(),
+  });
+}
+
+async function linkIdentity({ db, provider, profile, userId }) {
+  const identities = db.collection("oauth_identities");
+  const owner = await identities.findOne({ provider, subject: profile.subject });
+  if (owner && owner.user_id !== userId) {
+    throw new Error("oauth_identity_already_linked");
+  }
+  await identities.updateOne(
+    { provider, subject: profile.subject },
+    {
+      $setOnInsert: {
+        provider,
+        subject: profile.subject,
+        user_id: userId,
+        created_at: new Date(),
+      },
+      $set: { email: profile.email, last_login_at: new Date() },
+    },
+    { upsert: true },
+  );
+}
+
+export function registerOAuthRoutes(app, { config, db, identityDb, authenticate }) {
   app.get("/v1/oauth/:provider/start", {
     config: { rateLimit: { max: 20, timeWindow: "10 minutes" } },
     schema: {
@@ -183,41 +271,105 @@ export function registerOAuthRoutes(app, { config, db, identityDb }) {
     },
   }, async (request, reply) => {
     const { provider } = request.params;
-    const definition = PROVIDERS[provider];
-    const credentials = config.oauth[provider];
-    if (
-      !definition ||
-      !credentials?.clientId ||
-      !credentials?.clientSecret ||
-      config.oauth.stateSecret.length < 32
-    ) {
+    if (!providerAvailable(config, provider)) {
       return reply.code(404).send({ error: "oauth_provider_unavailable" });
     }
     const returnTo = request.query.return_to;
     if (!config.oauthReturnUrls.includes(returnTo)) {
       return reply.code(400).send({ error: "invalid_return_url" });
     }
-    const state = base64url(randomBytes(32));
-    const verifier = base64url(randomBytes(48));
-    await db.collection("oauth_states").insertOne({
-      state_hash: stateHash(state, config.oauth.stateSecret),
+    const url = await createOAuthStart({
+      db,
+      config,
       provider,
-      verifier,
-      return_to: returnTo,
-      expires_at: new Date(Date.now() + 10 * 60_000),
+      returnTo,
+      mode: "login",
     });
-    const url = new URL(definition.authorize);
-    url.search = new URLSearchParams({
-      client_id: credentials.clientId,
-      redirect_uri: `${config.publicUrl}/v1/oauth/${provider}/callback`,
-      response_type: "code",
-      scope: definition.scope,
-      state,
-      code_challenge: sha256(verifier),
-      code_challenge_method: "S256",
-      prompt: provider === "google" ? "select_account" : "consent",
+    return reply.redirect(url);
+  });
+
+  app.get("/v1/account/oauth", { preHandler: authenticate }, async (request) => ({
+    items: (await db.collection("oauth_identities")
+      .find(
+        { user_id: request.tukiUser.id },
+        { projection: { _id: 0, subject: 0, user_id: 0 } },
+      )
+      .sort({ provider: 1 })
+      .toArray())
+      .map((identity) => ({
+        provider: identity.provider,
+        email: identity.email ?? null,
+        created_at: identity.created_at ?? null,
+        last_login_at: identity.last_login_at ?? null,
+      })),
+  }));
+
+  app.post("/v1/account/oauth/:provider/start", {
+    preHandler: authenticate,
+    config: { rateLimit: { max: 10, timeWindow: "1 hour" } },
+    schema: {
+      params: {
+        type: "object",
+        required: ["provider"],
+        properties: { provider: { enum: ["google", "discord"] } },
+      },
+    },
+  }, async (request, reply) => {
+    const { provider } = request.params;
+    if (!providerAvailable(config, provider)) {
+      return reply.code(404).send({ error: "oauth_provider_unavailable" });
+    }
+    const url = await createOAuthStart({
+      db,
+      config,
+      provider,
+      returnTo: config.oauthSettingsReturnUrl,
+      mode: "link",
+      userId: request.tukiUser.id,
     });
-    return reply.redirect(url.toString());
+    return { url };
+  });
+
+  app.delete("/v1/account/oauth/:provider", {
+    preHandler: authenticate,
+    config: { rateLimit: { max: 6, timeWindow: "1 hour" } },
+    schema: {
+      params: {
+        type: "object",
+        required: ["provider"],
+        properties: { provider: { enum: ["google", "discord"] } },
+      },
+    },
+  }, async (request, reply) => {
+    const identities = db.collection("oauth_identities");
+    const linked = await identities
+      .find({ user_id: request.tukiUser.id })
+      .project({ provider: 1 })
+      .toArray();
+    if (!linked.some((item) => item.provider === request.params.provider)) {
+      return reply.code(404).send({ error: "oauth_identity_not_found" });
+    }
+    const account = await identityDb.collection("accounts").findOne(
+      { _id: request.tukiUser.id },
+      { projection: { password: 1, oauth_only: 1 } },
+    );
+    const hasPassword =
+      account?.oauth_only === false || /^\$(?:argon2|2[aby]\$)/.test(account?.password ?? "");
+    if (!hasPassword && linked.length < 2) {
+      return reply.code(409).send({ error: "last_sign_in_method" });
+    }
+    await identities.deleteOne({
+      user_id: request.tukiUser.id,
+      provider: request.params.provider,
+    });
+    await addSecurityEvent(
+      db,
+      request,
+      request.tukiUser.id,
+      "oauth_provider_unlinked",
+      { provider: request.params.provider },
+    );
+    return reply.code(204).send();
   });
 
   app.get("/v1/oauth/:provider/callback", {
@@ -259,11 +411,37 @@ export function registerOAuthRoutes(app, { config, db, identityDb }) {
         state.verifier,
         config,
       );
+      if (state.mode === "link") {
+        if (!state.user_id) throw new Error("oauth_link_user_missing");
+        await linkIdentity({
+          db,
+          provider,
+          profile,
+          userId: state.user_id,
+        });
+        await addSecurityEvent(db, request, state.user_id, "oauth_provider_linked", {
+          provider,
+        });
+        recordOAuthCallback(provider, "success");
+        return reply.redirect(
+          appendQuery(returnTo, { oauth: "linked", provider }),
+        );
+      }
       const session = await createIdentitySession({
         db,
         identityDb,
         provider,
         profile,
+      });
+      try {
+        await verifyIdentitySession({ identityUrl: config.identityUrl, session });
+      } catch (error) {
+        await identityDb.collection("sessions").deleteOne({ _id: session._id });
+        throw error;
+      }
+      await addSecurityEvent(db, request, session.user_id, "oauth_login_succeeded", {
+        provider,
+        session_id: session._id,
       });
       const code = base64url(randomBytes(32));
       await db.collection("oauth_exchanges").insertOne({
@@ -271,10 +449,12 @@ export function registerOAuthRoutes(app, { config, db, identityDb }) {
         session,
         expires_at: new Date(Date.now() + 60_000),
       });
+      recordOAuthCallback(provider, "success");
       return reply.redirect(`${returnTo}?code=${encodeURIComponent(code)}`);
     } catch (error) {
+      recordOAuthCallback(provider, "failure");
       request.log.warn({ err: error, provider }, "OAuth callback failed");
-      return reply.redirect(`${returnTo}?error=oauth_failed`);
+      return reply.redirect(appendQuery(returnTo, { error: "oauth_failed" }));
     }
   });
 

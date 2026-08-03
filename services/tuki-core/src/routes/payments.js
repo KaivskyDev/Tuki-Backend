@@ -64,6 +64,46 @@ export function createNotificationHash({
   );
 }
 
+export function parseHotPayInitialisation(value) {
+  if (typeof value === "string" && /^https:\/\//i.test(value.trim())) {
+    try {
+      const redirectUrl = new URL(value.trim());
+      const hostname = redirectUrl.hostname.toLowerCase();
+      return hostname === "hotpay.pl" || hostname.endsWith(".hotpay.pl")
+        ? redirectUrl.toString()
+        : null;
+    } catch {
+      return null;
+    }
+  }
+  let payload;
+  try {
+    payload = typeof value === "string"
+      ? JSON.parse(value.replace(/^\uFEFF/, "").trim())
+      : value;
+  } catch {
+    return null;
+  }
+  if (!payload || typeof payload !== "object") return null;
+
+  const status = String(payload.STATUS ?? "").trim().toLowerCase();
+  if (!(["true", "1"].includes(status) || payload.STATUS === true)) return null;
+
+  try {
+    const redirectUrl = new URL(String(payload.URL ?? ""));
+    const hostname = redirectUrl.hostname.toLowerCase();
+    if (
+      redirectUrl.protocol !== "https:" ||
+      !(hostname === "hotpay.pl" || hostname.endsWith(".hotpay.pl"))
+    ) {
+      return null;
+    }
+    return redirectUrl.toString();
+  } catch {
+    return null;
+  }
+}
+
 function paymentConfigured(config) {
   return Boolean(
     config.hotpay.serviceSecret && config.hotpay.notificationPassword,
@@ -422,24 +462,21 @@ export async function registerPaymentRoutes(app, { config, db, authenticate }) {
         const response = await fetch(config.hotpay.paymentUrl, {
           method: "POST",
           body: form,
-          redirect: "error",
+          redirect: "manual",
           signal: AbortSignal.timeout(12_000),
         });
-        const payload = await response.json();
-        const redirectUrl = new URL(String(payload.URL ?? ""));
-        if (
-          !response.ok ||
-          payload.STATUS !== true ||
-          redirectUrl.protocol !== "https:" ||
-          !redirectUrl.hostname.endsWith("hotpay.pl")
-        ) {
+        const responseBody = await response.text();
+        const redirectUrl =
+          parseHotPayInitialisation(responseBody) ??
+          parseHotPayInitialisation(response.headers.get("location"));
+        if ((response.status < 200 || response.status >= 400) || !redirectUrl) {
           throw new Error("HotPay rejected checkout initialisation");
         }
         await orders.updateOne(
           { id },
           { $set: { status: "INITIALISED", updated_at: new Date() } },
         );
-        return { order_id: id, redirect_url: redirectUrl.toString() };
+        return { order_id: id, redirect_url: redirectUrl };
       } catch (error) {
         request.log.error({ err: error, orderId: id }, "HotPay init failed");
         await orders.updateOne(

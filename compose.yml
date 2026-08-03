@@ -117,8 +117,10 @@ services:
       TUKI_DATABASE_NAME: tuki
       TUKI_IDENTITY_DATABASE_NAME: revolt
       TUKI_IDENTITY_URL: http://api:14702
+      TUKI_GATEWAY_URL: "${TUKI_GATEWAY_URL:-ws://events:14703}"
       TUKI_PUBLIC_URL: https://core.muzes.xyz
       TUKI_OAUTH_RETURN_URLS: https://chat.muzes.xyz/login/oauth
+      TUKI_OAUTH_SETTINGS_RETURN_URL: "${TUKI_OAUTH_SETTINGS_RETURN_URL:-https://chat.muzes.xyz/settings?section=connections}"
       TUKI_ALLOWED_ORIGINS: "${TUKI_ALLOWED_ORIGINS:-https://chat.muzes.xyz,http://localhost:8494,http://127.0.0.1:8494}"
       TUKI_ADMIN_USER_IDS: ${TUKI_ADMIN_USER_IDS:-}
       TUKI_TRUST_PROXY: "true"

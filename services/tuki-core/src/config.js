@@ -17,11 +17,15 @@ export const config = Object.freeze({
   databaseName: process.env.TUKI_DATABASE_NAME ?? "tuki",
   identityDatabaseName: process.env.TUKI_IDENTITY_DATABASE_NAME ?? "revolt",
   identityUrl: process.env.TUKI_IDENTITY_URL ?? "http://api:14702",
+  gatewayUrl: process.env.TUKI_GATEWAY_URL ?? "ws://events:14703",
   publicUrl: process.env.TUKI_PUBLIC_URL ?? "https://core.muzes.xyz",
   oauthReturnUrls: list(
     process.env.TUKI_OAUTH_RETURN_URLS ??
       "https://chat.muzes.xyz/login/oauth",
   ),
+  oauthSettingsReturnUrl:
+    process.env.TUKI_OAUTH_SETTINGS_RETURN_URL ??
+    "https://chat.muzes.xyz/settings?section=connections",
   oauth: {
     stateSecret: process.env.TUKI_OAUTH_STATE_SECRET ?? "",
     google: {

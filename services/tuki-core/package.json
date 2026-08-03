@@ -9,7 +9,8 @@
   "scripts": {
     "clean": "node scripts/clean.mjs",
     "start": "node src/server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "test:oauth-session": "node scripts/verify-oauth-session.mjs"
   },
   "dependencies": {
     "@fastify/cors": "11.3.0",
